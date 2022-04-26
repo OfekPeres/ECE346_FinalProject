@@ -48,6 +48,7 @@ class Planning_MPC():
     def __init__(self,
                 track_file=None,
                 pose_topic='/zed2/zed_node/odom',
+                leader_pose_topic='nx15/zed2/zed_node/odom',
                 control_topic='/planning/trajectory',
                 params_file='modelparams.yaml'):
         '''

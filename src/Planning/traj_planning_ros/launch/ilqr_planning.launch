@@ -3,7 +3,7 @@
     <arg name="PoseTopic"   default="/zed2/zed_node/odom"    doc="ROS topic for the pose"/>
     <arg name="ControllerTopic"   default="/control/rc_control"    doc="ROS topic to publish"/>
     <arg name="TrackFile"   default="$(find traj_planning_ros)/params/outerloop_center_smooth.csv"    doc="Trajectory Center"/>
-    <arg name="NameSpace"  default="nx14" doc="name space of the ros nodes"/>
+    <arg name="NameSpace"  default="nx1" doc="name space of the ros nodes"/>
     <group ns="$(arg NameSpace)">
         <include file="$(find rc_control)/launch/rc_control_node.launch"/>
 
