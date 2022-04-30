@@ -9,6 +9,7 @@
 
         <include file="$(find zed_wrapper)/launch/zed2.launch"/>
 
+    
         <node pkg="traj_planning_ros" type="traj_planning_node.py" name="traj_planning" output="$(arg output)">
             <param name="ControllerTopic"           value="/$(arg NameSpace)$(arg ControllerTopic)" />
             <param name="PoseTopic"           value="/$(arg NameSpace)$(arg PoseTopic)" />
@@ -16,6 +17,6 @@
             <param name="TrackFile"     value="$(find traj_planning_ros)/params/outerloop_center_smooth.csv" />
             <param name="ViconPose"           value="true" />
             <param name="Solver"           value="ilqr" />
-        </node>
+        </node> 
     </group>
 </launch>
