@@ -95,7 +95,7 @@ class Planning_MPC():
 
         # set up the optimal control solver
 
-        self.ocp_solver = iLQR(params=self.params)
+        self.ocp_solver = iLQR(self.track, params=self.params)
 
         rospy.loginfo("Successfully initialized the solver with horizon " +
                     str(self.T) + "s, and " + str(self.N) + " steps.")
@@ -232,7 +232,7 @@ class Planning_MPC():
 
 
     def ilqr_pub_thread(self):
-        time.sleep(10)
+        time.sleep(3)
         rospy.loginfo("iLQR Planning publishing thread started")
         while not rospy.is_shutdown():
             # determine if we need to publish

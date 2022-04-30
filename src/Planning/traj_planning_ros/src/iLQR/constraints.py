@@ -100,21 +100,26 @@ class Constraints:
 
         return c_vel + c_boundary + c_lat + c_obs
 
-    def get_derivatives(self, states: np.ndarray, controls: np.ndarray) -> np.ndarray:
+    def get_derivatives(self, states: np.ndarray, controls: np.ndarray,
+                        closest_pt: np.ndarray,
+                        slope: np.ndarray) -> np.ndarray:
         '''
-    Calculates the Jacobian and Hessian of soft constraint cost.
+        Calculates the Jacobian and Hessian of soft constraint cost.
 
-    Args:
-        states: 4xN array of planned trajectory
-        controls: 2xN array of planned control
-        closest_pt: 2xN array of each state's closest point [x,y] on the track
-        slope: 1xN array of track's slopes (rad) at closest points
-    '''
+        Args:
+            states: 4xN array of planned trajectory
+            controls: 2xN array of planned control
+            closest_pt: 2xN array of each state's closest point [x,y] on the track
+            slope: 1xN array of track's slopes (rad) at closest points
+        '''
 
         # lateral acceleration constraints
         c_x_lat, c_xx_lat, c_u_lat, c_uu_lat, c_ux_lat = \
             self._lat_accec_bound_derivative(states, controls)
 
+        # road bound constraints
+        c_x_rd, c_xx_rd = self._road_boundary_derivatie(
+            states, closest_pt, slope)
 
         # obstacle constraints
         c_x_obs = np.zeros_like(c_x_lat)
@@ -134,8 +139,8 @@ class Constraints:
         c_x_vel, c_xx_vel = self._velocity_bound_derivatie(states)
 
         # sum up
-        c_x_cons = c_x_lat + c_x_obs + c_x_vel
-        c_xx_cons = c_xx_lat + c_xx_obs + c_xx_vel
+        c_x_cons = c_x_rd + c_x_lat + c_x_obs + c_x_vel
+        c_xx_cons = c_xx_rd + c_xx_lat + c_xx_obs + c_xx_vel
 
         c_u_cons = c_u_lat
         c_uu_cons = c_uu_lat
@@ -145,11 +150,11 @@ class Constraints:
 
     def _velocity_bound_derivatie(self, states: np.ndarray) -> np.ndarray:
         '''
-    Calculates the Jacobian and Hessian of velocity soft constraint cost.
+        Calculates the Jacobian and Hessian of velocity soft constraint cost.
 
-    Args:
+        Args:
         states: 4xN array of planned trajectory
-    '''
+        '''
         transform = np.array([self.zeros, self.zeros, self.ones, self.zeros])
 
         # larger than 0
