@@ -11,6 +11,7 @@ from scipy.spatial.transform import Rotation
 from rc_control_msgs.msg import RCControl
 import yaml, csv
 import time
+import math
 
 
 class State():
@@ -122,7 +123,7 @@ class Planning_MPC():
 
         self.counter = 0
         # start planning thread
-        threading.Thread(target=self.ilqr_pub_thread).start()
+        # threading.Thread(target=self.pid_thread).start()
 
     def leader_odom(self, odomMsg):
         """
@@ -201,37 +202,29 @@ class Planning_MPC():
         else:
             v = 0
         cur_X = np.array([x, y, v, psi])
-        # obtain the latest plan
-        last_plan = self.plan_buffer.readFromRT()
-        if last_plan is not None:
-            # get the control policy
-            X_k, u_k, K_k = last_plan.get_policy(cur_t)
-            u = u_k+ K_k@(cur_X - X_k)           
-            self.publish_control(v, u, cur_t)
+        # obtain the latest leader state
+        leader_X = self.leader_waypoints[:,-1]
+        # get the control policy
+        
+        u = self.pid(cur_X, leader_X)
+        throttle, steer = u
+        self.publish_control(throttle, steer, cur_t)
         # write the new pose to the buffer
-        self.state_buffer.writeFromNonRT(State(cur_X, cur_t))
+        # self.state_buffer.writeFromNonRT(State(cur_X, cur_t))
 
-    def publish_control(self, v, u, cur_t):
+    def publish_control(self, throttle, steer, cur_t):
         control = RCControl()
         control.header.stamp = cur_t
-        a = u[0]
-        delta = -u[1]
-        if a<0:
-            d = a/10-0.5
-        else:
-            temp = np.array([v**3, v**2, v, a**3, a**2, a, v**2*a, v*a**2, v*a, 1])
-            d = temp@self.d_open_loop
-            d = d+min(delta*delta*0.5,0.05)
         
         ## CHANGE THIS
-        control.throttle = np.clip(d, -0.6, 0.6)
-        control.steer = np.clip(delta/0.3, -1.0, 1.0)
+        control.throttle = throttle
+        control.steer = steer
         control.reverse = False
         #rospy.loginfo(control)
         self.control_pub.publish(control)
 
 
-    def ilqr_pub_thread(self):
+    def pid_thread(self):
         time.sleep(3)
         rospy.loginfo("iLQR Planning publishing thread started")
         while not rospy.is_shutdown():
@@ -268,6 +261,70 @@ class Planning_MPC():
                 cur_plan = Plan(sol_x, sol_u, sol_K, cur_state.t, self.replan_dt, self.N)
                 self.plan_buffer.writeFromNonRT(cur_plan)
                 
+
+    def pidManager(self, waypoints):
+        pass
+    
+    def pid(self, startState, goalState):
+        """
+        Args:
+            startState (numpy array): (x, y, v, theta)
+            goalState (numpy array): (x,y, v, theta)
+        """
+        dist = np.linalg.norm(startState[:2] - goalState[:2])
+        thetaErr = self.calcThetaError(startState, goalState)
+        vErr = startState[2] - goalState[2]
+
+        kp_throttle = .2
+        kd_throttle = .000001
+        kp_steer = 1.5
+        throttle = kp_throttle * dist + kd_throttle * vErr
+        steer = -kp_steer*thetaErr
+
+        steer = np.clip(steer, -1, 1)
+        throttle = np.clip(throttle, -.2, .2)
+
+        if (dist < 0.3):
+            throttle = 0
+
+        if self.counter % 50 == 0:
+            rospy.loginfo(f"startState:{startState}")
+            rospy.loginfo(f"goalState:{goalState}")
+            rospy.loginfo(f"thetaErr:{np.rad2deg(thetaErr)}")
+            rospy.loginfo(f"dist:{dist}")
+            rospy.loginfo(f"throttle:{throttle}")
+            rospy.loginfo(f"steer:{steer}")
+
+        return np.array([throttle, steer])
+
+    def calcThetaError(self,startState: np.ndarray, goalState: np.ndarray) -> float:
+        """Calculates the directional angle error between the direction the car
+        is facing and where it should be facing if it were to travel straight 
+        to the goal point
+        
+        Args:
+            startState (numpy array): the (x,y, v, theta) state that the car is currently in
+            goalState (numpy array): the (x,y, v, theta) state that the car should travel to
+        
+        Returns:
+            float: The signed angle theta between the car's direction and the direction towards the goal
+
+        """
+        return goalState[3] - startState[3] 
+        # This step is highly important - get the vector pointing from the car
+        # to the target point
+        car2goal = startState[:2] - goalState[:2]
+        _,_,_, theta = startState
+        car2goal = car2goal / np.linalg.norm(car2goal)
+        carHeading = np.array([np.cos(theta), np.sin(theta)])
+
+        # Calculate the signed angle between two vectors (can potentially be
+        # done with the "perpendicular dot product" but here is accomplished
+        # by utilizing code inspired by p5.js source code for the angleBetween
+        # function)
+        theta = math.acos(min(1, max(-1, carHeading.dot(car2goal))))
+        theta = theta * np.sign(np.cross(carHeading, car2goal)) or 1
+        return theta
 
     def run(self):
         rospy.spin() 
