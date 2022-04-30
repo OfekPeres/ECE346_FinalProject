@@ -29,7 +29,7 @@ class Plan():
     
     def get_policy(self, t):
         k = int(np.floor((t-self.t0).to_sec()/self.dt))
-        if k>= self.N:
+        if k>= self.N-1:
             rospy.logwarn("Try to retrive policy beyond horizon")
             x_k = self.nominal_x[:,-1]
             x_k[2:] = 0
@@ -48,7 +48,7 @@ class Planning_MPC():
     def __init__(self,
                 track_file=None,
                 pose_topic='/zed2/zed_node/odom',
-                leader_pose_topic='nx15/zed2/zed_node/odom',
+                leader_pose_topic='/nx1/zed2/zed_node/odom',
                 control_topic='/planning/trajectory',
                 params_file='modelparams.yaml'):
         '''
@@ -95,24 +95,81 @@ class Planning_MPC():
 
         # set up the optimal control solver
 
-        self.ocp_solver = iLQR(self.track, params=self.params)
+        self.ocp_solver = iLQR(params=self.params)
 
         rospy.loginfo("Successfully initialized the solver with horizon " +
                     str(self.T) + "s, and " + str(self.N) + " steps.")
 
         self.state_buffer = RealtimeBuffer()
         self.plan_buffer = RealtimeBuffer()
+        self.leader_state_buffer = RealtimeBuffer()
+        self.leader_waypoints = np.zeros([4,self.N])
 
         # set up publiser to the reference trajectory and subscriber to the pose
         self.control_pub = rospy.Publisher(control_topic, RCControl, queue_size=1)
 
+        
         self.pose_sub = rospy.Subscriber(pose_topic,
                                         Odometry,
                                         self.odom_sub_callback,
                                         queue_size=1)
-    
+        
+
+        self.leader_pose_sub = rospy.Subscriber(leader_pose_topic,
+                                        Odometry,
+                                        self.leader_odom,
+                                        queue_size=1)
+
+        self.counter = 0
         # start planning thread
         threading.Thread(target=self.ilqr_pub_thread).start()
+
+    def leader_odom(self, odomMsg):
+        """
+        Subscriber callback function of the robot pose
+        """
+        cur_t = odomMsg.header.stamp
+        # postion
+        x = odomMsg.pose.pose.position.x
+        y = odomMsg.pose.pose.position.y
+
+        # pose
+        r = Rotation.from_quat([
+            odomMsg.pose.pose.orientation.x, odomMsg.pose.pose.orientation.y,
+            odomMsg.pose.pose.orientation.z, odomMsg.pose.pose.orientation.w
+        ])
+
+        rot_vec = r.as_rotvec()
+        psi = rot_vec[2]
+        
+        # get previous state
+        prev_state = self.leader_state_buffer.readFromRT()
+
+        # linear velocity
+        if prev_state is not None:
+            dx = x - prev_state.state[0]
+            dy = y - prev_state.state[1]
+            #if dx**2 + dy**2 > 0.5:
+            #    return
+            dt = (cur_t-prev_state.t).to_sec()
+            v = np.sqrt(dx * dx + dy * dy) / dt
+        else:
+            v = 0
+
+        leader_cur_X = np.array([x, y, v, psi])
+
+
+            
+        self.leader_state_buffer.writeFromNonRT(State(leader_cur_X, cur_t))
+        leader_cur_X = leader_cur_X.reshape((4,1))
+
+
+        if self.counter %5 == 0:
+            self.leader_waypoints = np.append(self.leader_waypoints[:,1:self.N],leader_cur_X, axis=1)
+        self.counter += 1
+        #rospy.loginfo(leader_cur_X)
+
+        # write the new pose to the buffer
 
     def odom_sub_callback(self, odomMsg):
         """
@@ -151,7 +208,6 @@ class Planning_MPC():
             X_k, u_k, K_k = last_plan.get_policy(cur_t)
             u = u_k+ K_k@(cur_X - X_k)           
             self.publish_control(v, u, cur_t)
-        
         # write the new pose to the buffer
         self.state_buffer.writeFromNonRT(State(cur_X, cur_t))
 
@@ -160,7 +216,6 @@ class Planning_MPC():
         control.header.stamp = cur_t
         a = u[0]
         delta = -u[1]
-        
         if a<0:
             d = a/10-0.5
         else:
@@ -168,14 +223,16 @@ class Planning_MPC():
             d = temp@self.d_open_loop
             d = d+min(delta*delta*0.5,0.05)
         
-        control.throttle = np.clip(d, -1.0, 1.0)
+        ## CHANGE THIS
+        control.throttle = np.clip(d, -0.3, 0.3)
         control.steer = np.clip(delta/0.3, -1.0, 1.0)
         control.reverse = False
+        #rospy.loginfo(control)
         self.control_pub.publish(control)
 
 
     def ilqr_pub_thread(self):
-        time.sleep(5)
+        time.sleep(10)
         rospy.loginfo("iLQR Planning publishing thread started")
         while not rospy.is_shutdown():
             # determine if we need to publish
@@ -187,6 +244,9 @@ class Planning_MPC():
             since_last_pub = self.replan_dt if prev_plan is None else (
                 cur_state.t - prev_plan.t0).to_sec()
             if since_last_pub >= self.replan_dt:
+
+                leader_waypoints = np.array(self.leader_waypoints)
+                rospy.loginfo(leader_waypoints)
                 if prev_plan is None:
                     u_init = None
                 else:
@@ -201,8 +261,8 @@ class Planning_MPC():
                 # static_obs = EllipsoidObj(q=ego_q, Q=ego_Q)
                 # static_obs_list = [static_obs for _ in range(self.N)]
                 
-                sol_x, sol_u, _, _, _, sol_K, _, _ = self.ocp_solver.solve(
-                    cur_state.state, u_init, record=True, obs_list=[])
+                sol_x, sol_u, _, _, sol_K, _, _ = self.ocp_solver.solve(
+                    cur_state.state, leader_waypoints, u_init, record=True, obs_list=[])
                 # print(np.round(sol_x,2))
                 # print(np.round(sol_u[1,:],2))
                 cur_plan = Plan(sol_x, sol_u, sol_K, cur_state.t, self.replan_dt, self.N)

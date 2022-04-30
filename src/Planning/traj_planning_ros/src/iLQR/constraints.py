@@ -50,7 +50,7 @@ class Constraints:
         self.ego = EllipsoidObj(q=ego_q, Q=ego_Q)
         self.ego_ell = None
         ''' obstacles represented as FRS'''
-        self.obs_list = None
+        self.obs_list = []
 
     def update_obs(self, frs_list):
         self.obs_list = frs_list
@@ -100,9 +100,7 @@ class Constraints:
 
         return c_vel + c_boundary + c_lat + c_obs
 
-    def get_derivatives(self, states: np.ndarray, controls: np.ndarray,
-                        closest_pt: np.ndarray,
-                        slope: np.ndarray) -> np.ndarray:
+    def get_derivatives(self, states: np.ndarray, controls: np.ndarray) -> np.ndarray:
         '''
     Calculates the Jacobian and Hessian of soft constraint cost.
 
@@ -117,9 +115,6 @@ class Constraints:
         c_x_lat, c_xx_lat, c_u_lat, c_uu_lat, c_ux_lat = \
             self._lat_accec_bound_derivative(states, controls)
 
-        # road bound constraints
-        c_x_rd, c_xx_rd = self._road_boundary_derivatie(
-            states, closest_pt, slope)
 
         # obstacle constraints
         c_x_obs = np.zeros_like(c_x_lat)
@@ -139,8 +134,8 @@ class Constraints:
         c_x_vel, c_xx_vel = self._velocity_bound_derivatie(states)
 
         # sum up
-        c_x_cons = c_x_rd + c_x_lat + c_x_obs + c_x_vel
-        c_xx_cons = c_xx_rd + c_xx_lat + c_xx_obs + c_xx_vel
+        c_x_cons = c_x_lat + c_x_obs + c_x_vel
+        c_xx_cons = c_xx_lat + c_xx_obs + c_xx_vel
 
         c_u_cons = c_u_lat
         c_uu_cons = c_uu_lat

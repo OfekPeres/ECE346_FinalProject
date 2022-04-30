@@ -43,7 +43,7 @@ q2_obs: 0
 
 # ilqr parameters
 T: 2
-N: 11  # the number of planning steps
+N: 21  # the number of planning steps
 max_itr: 50
 # replan_dt: 0.1
 

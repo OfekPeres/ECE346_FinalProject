@@ -17,10 +17,15 @@ class Cost:
 
     # cost
     self.w_vel = params['w_vel']
+    self.w_contour = params['w_contour']
+    self.w_theta = params['w_theta']
     self.w_accel = params['w_accel']
     self.w_delta = params['w_delta']
     self.wheelbase = params['wheelbase']
 
+    self.track_offset = params['track_offset']
+
+    self.W_state = np.array([[self.w_contour, 0], [0, self.w_vel]])
     self.W_control = np.array([[self.w_accel, 0], [0, self.w_delta]])
 
     # useful constants
@@ -31,7 +36,7 @@ class Cost:
   def update_obs(self, frs_list):
     self.soft_constraints.update_obs(frs_list)
 
-  def get_cost(self, states, controls, leader_states):
+  def get_cost(self, states, controls, closest_pt, slope, theta):
     """
     Calculates the cost given planned states and controls.
 
@@ -48,17 +53,45 @@ class Cost:
         np.ndarray: costs.
     """
     
-    
-    ref_states = leader_states #[x,y,v,psi,t]
-    
+    transform = np.array([[
+        np.sin(slope), -np.cos(slope), self.zeros, self.zeros
+    ], [self.zeros, self.zeros, self.ones, self.zeros]])
+
+    ref_states = np.zeros_like(states)
+    ref_states[0, :] = closest_pt[0, :]+np.sin(slope) * self.track_offset
+    ref_states[1, :] = closest_pt[1, :]-np.cos(slope) * self.track_offset
+    ref_states[2, :] = self.v_max
+
     error = states - ref_states 
+    Q_trans = np.einsum(
+        'abn, bcn->acn',
+        np.einsum(
+            'dan, ab -> dbn', transform.transpose(1, 0, 2), self.W_state
+        ), transform
+    )
+
+    c_state = np.einsum(
+        'an, an->n', error, np.einsum('abn, bn->an', Q_trans, error)
+    )
+    c_progress = -self.w_theta * np.sum(theta)  #(theta[-1] - theta[0])
+
+    c_control = np.einsum(
+        'an, an->n', controls,
+        np.einsum('ab, bn->an', self.W_control, controls)
+    )
+
+    c_control[-1] = 0
     
-    J = 50*(error[0,:]**2 + error[1,:]**2) + 0.2*error[2,:]**2 + 0.1*error[3,:]
-    J = np.sum(J)
-    #J = np.linalg.norm(error)**2
+    # constraints
+    c_constraint = self.soft_constraints.get_cost(
+        states, controls, closest_pt, slope
+    )    
+
+    J = np.sum(c_state + c_constraint + c_control) + c_progress
+
     return J
 
-  def get_derivatives(self, states, controls, leader_waypoints):
+  def get_derivatives(self, states, controls, closest_pt, slope):
     '''
     Calculate Jacobian and Hessian of the cost function
         states: 4xN array of planned trajectory
@@ -68,12 +101,12 @@ class Cost:
     '''
     c_x_cons, c_xx_cons, c_u_cons, c_uu_cons, c_ux_cons = (
         self.soft_constraints.get_derivatives(
-            states, controls
+            states, controls, closest_pt, slope
         )
     )
 
     c_x_cost, c_xx_cost = self._get_cost_state_derivative(
-        states, leader_waypoints
+        states, closest_pt, slope
     )
 
     c_u_cost, c_uu_cost = self._get_cost_control_derivative(controls)
@@ -88,37 +121,37 @@ class Cost:
 
     return q, Q, r, R, S
 
-  def _get_cost_state_derivative(self, states, leader_waypoints):
+  def _get_cost_state_derivative(self, states, closest_pt, slope):
     '''
     Calculate Jacobian and Hessian of the cost function with respect to state
         states: 4xN array of planned trajectory
         closest_pt: 2xN array of each state's closest point [x,y] on the track
         slope: 1xN array of track's slopes (rad) at closest points
     '''
-    ref_states = leader_waypoints
+    transform = np.array([[
+        np.sin(slope), -np.cos(slope), self.zeros, self.zeros
+    ], [self.zeros, self.zeros, self.ones, self.zeros]])
+    ref_states = np.zeros_like(states)
+    ref_states[0, :] = closest_pt[0, :]+np.sin(slope) * self.track_offset
+    ref_states[1, :] = closest_pt[1, :]-np.cos(slope) * self.track_offset
+    ref_states[2, :] = self.v_max
 
     error = states - ref_states 
-   
+    Q_trans = np.einsum(
+        'abn, bcn->acn',
+        np.einsum(
+            'dan, ab -> dbn', transform.transpose(1, 0, 2), self.W_state
+        ), transform
+    )- self.track_offset
+
     # shape [4xN]
+    c_x = 2 * np.einsum('abn, bn->an', Q_trans, error)
 
-    J = 0.7*(error[0]**2 + error[1]**2) + 0.2*error[2]**2 + 0.1*error[3]
-
-
-    c_x = 2*error
-    c_x[0,:] = 50*c_x[0,:]
-    c_x[1,:] = 50*c_x[1,:]
-    c_x[2,:] = 0.2*c_x[2,:]
-    c_x[3,:] = 0.1*c_x[3,:]
-    
-
-    c_xx = np.zeros([4,4,self.N])
-    for i in range(0,self.N):
-        c_xx[:,:,i] = 2*np.eye(4)
-        c_xx[0,0,i] = 50*c_xx[0,0,i]
-        c_xx[1,1,i] = 50*c_xx[1,1,i]
-        c_xx[2,2,i] = 0.2*c_xx[2,2,i]
-        c_xx[3,3,i] = 0.1*c_xx[3,3,i]
-
+    c_x_progress = -self.w_theta * np.array([
+        np.cos(slope), np.sin(slope), self.zeros, self.zeros
+    ])
+    c_x = c_x + c_x_progress
+    c_xx = 2 * Q_trans
 
     return c_x, c_xx
 
