@@ -34,8 +34,8 @@ w_delta: 5
 # parameters for barrier functions
 q1_v: 0
 q2_v: 0
-q1_road: 5
-q2_road: 5
+q1_road: 1
+q2_road: 3
 q1_lat: 1
 q2_lat: 5
 q1_obs: 0

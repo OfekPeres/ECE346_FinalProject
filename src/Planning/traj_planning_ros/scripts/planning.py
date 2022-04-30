@@ -224,7 +224,7 @@ class Planning_MPC():
             d = d+min(delta*delta*0.5,0.05)
         
         ## CHANGE THIS
-        control.throttle = np.clip(d, -0.3, 0.3)
+        control.throttle = np.clip(d, -0.6, 0.6)
         control.steer = np.clip(delta/0.3, -1.0, 1.0)
         control.reverse = False
         #rospy.loginfo(control)
