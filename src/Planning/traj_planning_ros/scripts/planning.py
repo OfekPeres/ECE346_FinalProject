@@ -203,7 +203,7 @@ class Planning_MPC():
             v = 0
         cur_X = np.array([x, y, v, psi])
         # obtain the latest leader state
-        leader_X = self.leader_waypoints[:,-1]
+        leader_X = self.leader_waypoints[:,-2]  # follow old 
         # get the control policy
         
         u = self.pid(cur_X, leader_X)
@@ -295,6 +295,7 @@ class Planning_MPC():
             rospy.loginfo(f"throttle:{throttle}")
             rospy.loginfo(f"steer:{steer}")
 
+        steer = steer + 0.2 # steering correction
         return np.array([throttle, steer])
 
     def calcThetaError(self,startState: np.ndarray, goalState: np.ndarray) -> float:
