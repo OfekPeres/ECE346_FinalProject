@@ -115,6 +115,7 @@ class Planning_MPC():
                                         self.leader_odom_sub_callback,
                                         queue_size=1)
     
+        self.controlList = []
         # start planning thread
         threading.Thread(target=self.ilqr_pub_thread).start()
 
@@ -129,6 +130,13 @@ class Planning_MPC():
         # postion
         x = odomMsg.pose.pose.position.x
         y = odomMsg.pose.pose.position.y
+
+        if x > 3:
+            rospy.loginfo(x)
+            rospy.loginfo('right lane')
+        else:
+            rospy.loginfo(x)
+            rospy.loginfo('left lane')
 
         # pose
         r = Rotation.from_quat([
@@ -158,6 +166,7 @@ class Planning_MPC():
             X_k, u_k, K_k = last_plan.get_policy(cur_t)
             u = u_k+ K_k@(cur_X - X_k)           
             self.publish_control(v, u, cur_t)
+
         
         # write the new pose to the buffer
         self.state_buffer.writeFromNonRT(State(cur_X, cur_t))
@@ -178,6 +187,7 @@ class Planning_MPC():
         control.throttle = np.clip(d, -1.0, 1.0)
         control.steer = np.clip(delta/0.3, -1.0, 1.0)
         control.reverse = False
+ 
         self.control_pub.publish(control)
 
 
