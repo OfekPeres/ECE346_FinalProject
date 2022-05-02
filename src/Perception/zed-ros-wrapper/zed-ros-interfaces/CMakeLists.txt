@@ -77,8 +77,3 @@ FILE(GLOB_RECURSE all_files ${CMAKE_SOURCE_DIR}/*)
 add_custom_target(all_files_${PROJECT_NAME} SOURCES ${all_files})
 
 
-# Install meshes
-install(DIRECTORY
-  meshes
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-)

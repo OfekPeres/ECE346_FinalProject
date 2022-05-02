@@ -128,15 +128,10 @@ protected:
    */
   void pointcloud_thread_func();
 
-  /*! \brief Sensors data publishing function
-   */
-  void sensors_thread_func();
-
   /*! \brief Publish the pose of the camera in "Map" frame with a ros Publisher
    * \param t : the ros::Time to stamp the image
    */
-  void
-  publishPose(ros::Time t);
+  void publishPose(ros::Time t);
 
   /*! \brief Publish the pose of the camera in "Odom" frame with a ros Publisher
    * \param base2odomTransf : Transformation representing the camera pose
@@ -253,7 +248,12 @@ protected:
    * \param e : the ros::TimerEvent binded to the callback
    */
   void callback_pubPath(const ros::TimerEvent& e);
-  
+
+  /*! \brief Callback to publish Sensor Data with a ROS publisher.
+   * \param e : the ros::TimerEvent binded to the callback
+   */
+  void callback_pubSensorsData(const ros::TimerEvent& e);
+
   /*! \brief Callback to update node diagnostic status
    * \param stat : node status
    */
@@ -411,9 +411,10 @@ private:
   ros::NodeHandle mNhNs;
   std::thread mDevicePollThread;
   std::thread mPcThread;  // Point Cloud thread
-  std::thread mSensThread; // Sensors data thread
 
-  bool mStopNode = false;  
+  bool mStopNode = false;
+
+  const double mSensPubRate = 400.0; // Maximum ODR for ZED2/ZED2i. You can change this to 800 for ZED-M, but it's not recommended
 
   // Publishers
   image_transport::CameraPublisher mPubRgb;       //
@@ -453,6 +454,7 @@ private:
   ros::Publisher mPubCamImuTransf;
 
   // Timers
+  ros::Timer mImuTimer;
   ros::Timer mPathTimer;
   ros::Timer mFusedPcTimer;
   ros::Timer mVideoDepthTimer;
@@ -543,7 +545,6 @@ private:
   std::string mSvoFilepath;
   std::string mRemoteStreamAddr;
   bool mSensTimestampSync;
-  double mSensPubRate = 400.0;
   double mPathPubRate;
   int mPathMaxCount;
   bool mVerbose;
@@ -716,7 +717,6 @@ private:
   bool mObjDetAnimalsEnable = true;
   bool mObjDetElectronicsEnable = true;
   bool mObjDetFruitsEnable = true;
-  bool mObjDetSportsEnable = true;
 
   sl::DETECTION_MODEL mObjDetModel = sl::DETECTION_MODEL::MULTI_CLASS_BOX;
 

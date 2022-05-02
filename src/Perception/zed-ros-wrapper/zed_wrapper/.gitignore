@@ -43,3 +43,10 @@ CMakeLists.txt.user*
 .vscode
 .vscode/*
 
+.DS_Store
+/**/*.github/
+/**/*.gitmodules
+
+src/Perception/
+
+

@@ -6,6 +6,7 @@ import numpy as np
 from iLQR import iLQR, Track, EllipsoidObj
 from realtime_buffer import RealtimeBuffer
 from traj_msgs.msg import TrajMsg
+from zed_interfaces.msg import ObjectsStamped, Object
 from nav_msgs.msg import Odometry
 from scipy.spatial.transform import Rotation
 from rc_control_msgs.msg import RCControl
@@ -49,7 +50,8 @@ class Planning_MPC():
     def __init__(self,
                 track_file=None,
                 pose_topic='/zed2/zed_node/odom',
-                leader_pose_topic='/nx1/zed2/zed_node/odom',
+                # leader_pose_topic='/nx1/zed2/zed_node/odom',
+                leader_pose_topic='/zed2/zed_node/obj_det/objects',
                 control_topic='/planning/trajectory',
                 params_file='modelparams.yaml'):
         '''
@@ -110,16 +112,20 @@ class Planning_MPC():
         self.control_pub = rospy.Publisher(control_topic, RCControl, queue_size=1)
 
         
-        self.pose_sub = rospy.Subscriber(pose_topic,
-                                        Odometry,
-                                        self.odom_sub_callback,
-                                        queue_size=1)
+        # self.pose_sub = rospy.Subscriber(pose_topic,
+        #                                 Odometry,
+        #                                 self.odom_sub_callback,
+        #                                 queue_size=1)
         
 
-        self.leader_pose_sub = rospy.Subscriber(leader_pose_topic,
-                                        Odometry,
-                                        self.leader_odom,
-                                        queue_size=1)
+        # self.leader_pose_sub = rospy.Subscriber(leader_pose_topic,
+        #                                 Odometry,
+        #                                 self.leader_odom,
+        #                                 queue_size=1)
+
+        rospy.loginfo("In INIT of Planning.py")
+        print("In print of INIT of Planning.py")
+        self.camera_subscriber = rospy.Subscriber('/nx15/zed2/zed_node/obj_det/objects', ObjectsStamped,self.process_camera)
 
         self.counter = 0
         # start planning thread
@@ -224,47 +230,27 @@ class Planning_MPC():
         self.control_pub.publish(control)
 
 
-    def pid_thread(self):
-        time.sleep(3)
-        rospy.loginfo("iLQR Planning publishing thread started")
-        while not rospy.is_shutdown():
-            # determine if we need to publish
-            
-            cur_state = self.state_buffer.readFromRT()
-            prev_plan = self.plan_buffer.readFromRT()
-            if cur_state is None:
-                continue
-            since_last_pub = self.replan_dt if prev_plan is None else (
-                cur_state.t - prev_plan.t0).to_sec()
-            if since_last_pub >= self.replan_dt:
-
-                leader_waypoints = np.array(self.leader_waypoints)
-                rospy.loginfo(leader_waypoints)
-                if prev_plan is None:
-                    u_init = None
-                else:
-                    u_init = np.zeros((2, self.N))
-                    u_init[:, :-1] = prev_plan.nominal_u[:, 1:]
-
-                # add in obstacle to solver
-                # ego_a = 0.5 / 2.0
-                # ego_b = 0.2 / 2.0
-                # ego_q = np.array([0, 5.6])[:, np.newaxis] 
-                # ego_Q = np.diag([ego_a**2, ego_b**2])
-                # static_obs = EllipsoidObj(q=ego_q, Q=ego_Q)
-                # static_obs_list = [static_obs for _ in range(self.N)]
-                
-                sol_x, sol_u, _, _, sol_K, _, _ = self.ocp_solver.solve(
-                    cur_state.state, leader_waypoints, u_init, record=True, obs_list=[])
-                # print(np.round(sol_x,2))
-                # print(np.round(sol_u[1,:],2))
-                cur_plan = Plan(sol_x, sol_u, sol_K, cur_state.t, self.replan_dt, self.N)
-                self.plan_buffer.writeFromNonRT(cur_plan)
-                
-
-    def pidManager(self, waypoints):
-        pass
     
+    def relative_pid(self, x, y):
+        """
+        x is depth inwards
+        y is positive to the left negative to the right
+        """
+        kp_throttle = .08
+        kd_throttle = 0
+
+        kp_steer = 0.3
+        kd_steer = 0
+        
+        throttle = kp_throttle*x
+        steer = -1*kp_steer*y
+
+        throttle = np.clip(throttle, 0, .3)
+        steer = np.clip(steer, -1, 1)
+
+        return throttle, steer
+        
+
     def pid(self, startState, goalState):
         """
         Args:
@@ -298,6 +284,28 @@ class Planning_MPC():
         steer = steer + 0.2 # steering correction
         return np.array([throttle, steer])
 
+    def process_camera(self, data):
+        
+        
+        cur_t = data.header.stamp
+        if len(data.objects) > 0:
+            leader_truck = data.objects[0]
+            x_leader = leader_truck.position[0]
+            y_leader = leader_truck.position[1]
+            throttle, steer = self.relative_pid(x_leader, y_leader)
+            self.publish_control(throttle, steer, cur_t)
+
+            if self.counter % 10 == 0:
+                rospy.loginfo(f"{leader_truck.label}")
+                rospy.loginfo(f"throttle: {throttle}, steer: {steer}")
+                print(f"x_leader: {x_leader}, y_leader: {y_leader}")
+        else:
+            if self.counter % 50 == 0:
+                rospy.loginfo(f"throttle: {0}, steer: {0}")
+            self.publish_control(0.1, 0, cur_t)
+            
+        self.counter +=1
+        
     def calcThetaError(self,startState: np.ndarray, goalState: np.ndarray) -> float:
         """Calculates the directional angle error between the direction the car
         is facing and where it should be facing if it were to travel straight 
