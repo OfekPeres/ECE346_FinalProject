@@ -121,6 +121,7 @@ class Planning_MPC():
 
     def leader_odom_sub_callback(self, odomMsg):
         print(odomMsg)
+        
 
     def odom_sub_callback(self, odomMsg):
         """
@@ -131,12 +132,13 @@ class Planning_MPC():
         x = odomMsg.pose.pose.position.x
         y = odomMsg.pose.pose.position.y
 
-        if x > 3:
-            rospy.loginfo(x)
-            rospy.loginfo('right lane')
-        else:
-            rospy.loginfo(x)
-            rospy.loginfo('left lane')
+        # if x > 3:
+            # rospy.loginfo(x)
+            # rospy.loginfo('right lane')
+        # else:
+
+            # rospy.loginfo(x)
+            # rospy.loginfo('left lane')
 
         # pose
         r = Rotation.from_quat([
