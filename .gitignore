@@ -2,3 +2,7 @@ build
 devel
 .catkin_workspace
 *.pyc
+
+build_isolated
+devel_isolated
+temp
