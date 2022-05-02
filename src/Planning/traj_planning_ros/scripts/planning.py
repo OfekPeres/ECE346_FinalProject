@@ -122,6 +122,8 @@ class Planning_MPC():
                                         queue_size=1)
 
         self.counter = 0
+
+        self.waypoints_to_track = []
         # start planning thread
         # threading.Thread(target=self.pid_thread).start()
 
@@ -162,11 +164,21 @@ class Planning_MPC():
 
             
         self.leader_state_buffer.writeFromNonRT(State(leader_cur_X, cur_t))
-        leader_cur_X = leader_cur_X.reshape((4,1))
+        # leader_cur_X = leader_cur_X.reshape((4,1))
 
 
-        if self.counter %5 == 0:
-            self.leader_waypoints = np.append(self.leader_waypoints[:,1:self.N],leader_cur_X, axis=1)
+        # if self.counter %5 == 0:
+        #     self.leader_waypoints = np.append(self.leader_waypoints[:,1:self.N],leader_cur_X, axis=1)
+        # Verify that the newest point is far enough away from the last point added
+        if len(self.waypoints_to_track) > 0:
+            dist = np.linalg.norm(leader_cur_X - self.waypoints_to_track[-1])
+
+            if dist > 0.4 and dist < 3:
+                self.waypoints_to_track.append(leader_cur_X)
+        else:
+            self.waypoints_to_track.append(leader_cur_X)
+
+        # print(f"Length of waypoints to track: {len(self.waypoints_to_track)}")
         self.counter += 1
         #rospy.loginfo(leader_cur_X)
 
@@ -203,12 +215,16 @@ class Planning_MPC():
             v = 0
         cur_X = np.array([x, y, v, psi])
         # obtain the latest leader state
-        leader_X = self.leader_waypoints[:,-2]  # follow old 
+        # leader_X = self.leader_waypoints[:,-2]  # follow old 
         # get the control policy
         
-        u = self.pid(cur_X, leader_X)
-        throttle, steer = u
+        # u = self.pid(cur_X, leader_X)
+        # throttle, steer = u
+
+        # Can call the manager here if we want to use it instead
+        throttle, steer = self.pidManager(cur_X, self.waypoints_to_track)
         self.publish_control(throttle, steer, cur_t)
+        
         # write the new pose to the buffer
         # self.state_buffer.writeFromNonRT(State(cur_X, cur_t))
 
@@ -224,46 +240,34 @@ class Planning_MPC():
         self.control_pub.publish(control)
 
 
-    def pid_thread(self):
-        time.sleep(3)
-        rospy.loginfo("iLQR Planning publishing thread started")
-        while not rospy.is_shutdown():
-            # determine if we need to publish
+
+    def pidManager(self, cur_X, waypoints):
+        """
+        Track the list of all waypoints that the car has seen so far
+
+        Args:
+            cur_X (numpy array) (x,y,v,theta)
+        """
+
+        if len(waypoints) == 0:
+            return 0,0 
+
+        # if self.counter % 100:
+        #     print(f"All waypoints are: {waypoints}")
+        cur_waypoint = waypoints[0]
+        dist = np.linalg.norm(cur_waypoint[:2] - cur_X[:2])
+        if dist < 0.4 or dist > 3:
+            waypoints.pop(0)
+        
+        # Update cur_waypoint in case the original was popped
+        if len(waypoints) >= 1:
+            cur_waypoint = waypoints[0]
+            throttle, steer = self.pid(cur_X, cur_waypoint)
+            return throttle, steer
+        else:
+            return 0, 0
             
-            cur_state = self.state_buffer.readFromRT()
-            prev_plan = self.plan_buffer.readFromRT()
-            if cur_state is None:
-                continue
-            since_last_pub = self.replan_dt if prev_plan is None else (
-                cur_state.t - prev_plan.t0).to_sec()
-            if since_last_pub >= self.replan_dt:
 
-                leader_waypoints = np.array(self.leader_waypoints)
-                rospy.loginfo(leader_waypoints)
-                if prev_plan is None:
-                    u_init = None
-                else:
-                    u_init = np.zeros((2, self.N))
-                    u_init[:, :-1] = prev_plan.nominal_u[:, 1:]
-
-                # add in obstacle to solver
-                # ego_a = 0.5 / 2.0
-                # ego_b = 0.2 / 2.0
-                # ego_q = np.array([0, 5.6])[:, np.newaxis] 
-                # ego_Q = np.diag([ego_a**2, ego_b**2])
-                # static_obs = EllipsoidObj(q=ego_q, Q=ego_Q)
-                # static_obs_list = [static_obs for _ in range(self.N)]
-                
-                sol_x, sol_u, _, _, sol_K, _, _ = self.ocp_solver.solve(
-                    cur_state.state, leader_waypoints, u_init, record=True, obs_list=[])
-                # print(np.round(sol_x,2))
-                # print(np.round(sol_u[1,:],2))
-                cur_plan = Plan(sol_x, sol_u, sol_K, cur_state.t, self.replan_dt, self.N)
-                self.plan_buffer.writeFromNonRT(cur_plan)
-                
-
-    def pidManager(self, waypoints):
-        pass
     
     def pid(self, startState, goalState):
         """
@@ -288,15 +292,15 @@ class Planning_MPC():
             throttle = 0
 
         if self.counter % 50 == 0:
-            rospy.loginfo(f"startState:{startState}")
-            rospy.loginfo(f"goalState:{goalState}")
-            rospy.loginfo(f"thetaErr:{np.rad2deg(thetaErr)}")
-            rospy.loginfo(f"dist:{dist}")
-            rospy.loginfo(f"throttle:{throttle}")
-            rospy.loginfo(f"steer:{steer}")
+            print(f"startState:{startState}")
+            print(f"goalState:{goalState}")
+            print(f"thetaErr:{np.rad2deg(thetaErr)}")
+            print(f"dist:{dist}")
+            print(f"throttle:{throttle}")
+            print(f"steer:{steer}")
 
         steer = steer + 0.2 # steering correction
-        return np.array([throttle, steer])
+        return throttle, steer
 
     def calcThetaError(self,startState: np.ndarray, goalState: np.ndarray) -> float:
         """Calculates the directional angle error between the direction the car
