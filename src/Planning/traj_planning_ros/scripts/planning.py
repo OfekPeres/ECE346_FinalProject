@@ -231,21 +231,30 @@ class Planning_MPC():
 
 
     
-    def relative_pid(self, x, y):
+    def relative_pid(self, x, y, vx, vy):
         """
         x is depth inwards
         y is positive to the left negative to the right
         """
-        kp_throttle = .08
+
+        if x < 0.5: 
+            return 0.2, 0
+
+        if math.isnan(x): 
+            return 0, 0
+
+        kp_throttle = 0.04
         kd_throttle = 0
 
-        kp_steer = 0.3
+        kp_steer = 0.02
         kd_steer = 0
-        
-        throttle = kp_throttle*x
-        steer = -1*kp_steer*y
 
-        throttle = np.clip(throttle, 0, .3)
+        offset_steer = -0.1
+        
+        throttle = kp_throttle*x + kd_throttle*vx
+        steer = -1*kp_steer*y + -1*kd_steer*vy + offset_steer
+
+        throttle = np.clip(throttle, 0, 0.3)
         steer = np.clip(steer, -1, 1)
 
         return throttle, steer
@@ -292,7 +301,9 @@ class Planning_MPC():
             leader_truck = data.objects[0]
             x_leader = leader_truck.position[0]
             y_leader = leader_truck.position[1]
-            throttle, steer = self.relative_pid(x_leader, y_leader)
+            vx_leader = leader_truck.velocity[0]
+            vy_leader = leader_truck.velocity[1]
+            throttle, steer = self.relative_pid(x_leader, y_leader, vx_leader, vy_leader)
             self.publish_control(throttle, steer, cur_t)
 
             if self.counter % 10 == 0:
@@ -301,8 +312,8 @@ class Planning_MPC():
                 print(f"x_leader: {x_leader}, y_leader: {y_leader}")
         else:
             if self.counter % 50 == 0:
-                rospy.loginfo(f"throttle: {0}, steer: {0}")
-            self.publish_control(0.1, 0, cur_t)
+                rospy.loginfo("no truck detected")
+            self.publish_control(0, 0, cur_t)
             
         self.counter +=1
         
