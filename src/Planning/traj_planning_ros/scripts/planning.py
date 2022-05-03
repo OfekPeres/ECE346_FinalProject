@@ -122,8 +122,9 @@ class Planning_MPC():
                                         queue_size=1)
 
         self.counter = 0
-
-        self.waypoints_to_track = []
+        self.overtakeControls = self.getOverTakeInputs()
+        self.overtakeControlIndex = 0
+        
         # start planning thread
         # threading.Thread(target=self.pid_thread).start()
 
@@ -222,8 +223,14 @@ class Planning_MPC():
         # throttle, steer = u
 
         # Can call the manager here if we want to use it instead
-        throttle, steer = self.pidManager(cur_X, self.waypoints_to_track)
-        self.publish_control(throttle, steer, cur_t)
+        # Get the control from the global control inputs for overtake
+        if self.overtakeControlIndex > len(self.overtakeControls) - 1:
+            print("Done overtake manuever")
+            self.publish_control(0, 0, cur_t)
+        else:
+            throttle, steer = self.overtakeControls[self.overtakeControlIndex]
+            self.publish_control(throttle, steer, cur_t)
+            self.overtakeControlIndex += 1
         
         # write the new pose to the buffer
         # self.state_buffer.writeFromNonRT(State(cur_X, cur_t))
@@ -331,5 +338,31 @@ class Planning_MPC():
         theta = theta * np.sign(np.cross(carHeading, car2goal)) or 1
         return theta
 
+    def getOverTakeInputs(self):
+        
+        controls = []
+        # Turn Left
+        for _ in range(45):
+            throttle = 0.1
+            steer = -1
+            controls.append([throttle, steer])
+        for _ in range(60):
+            throttle = 0.1
+            steer = 1
+            controls.append([throttle, steer])
+        for _ in range(50):
+            throttle = 0.1
+            steer = 0.1
+            controls.append([throttle, steer])
+        for _ in range(60):
+            throttle = 0.1
+            steer = 1
+            controls.append([throttle, steer])
+        for _ in range(60):
+            throttle = 0.1
+            steer = -1
+            controls.append([throttle, steer])
+
+        return controls
     def run(self):
         rospy.spin() 
