@@ -48,8 +48,8 @@ class Planning_MPC():
 
     def __init__(self,
                 track_file=None,
-                pose_topic='/zed2/zed_node/odom',
-                leader_pose_topic='/nx1/zed2/zed_node/odom',
+                pose_topic='/nx1/zed2/zed_node/odom',
+                leader_pose_topic='/nx15/zed2/zed_node/odom',
                 control_topic='/planning/trajectory',
                 params_file='modelparams.yaml'):
         '''
@@ -162,13 +162,13 @@ class Planning_MPC():
         leader_cur_X = np.array([x, y, v, psi])
 
 
-            
+        print(f"Leader State: {leader_cur_X}")
         self.leader_state_buffer.writeFromNonRT(State(leader_cur_X, cur_t))
-        # leader_cur_X = leader_cur_X.reshape((4,1))
+        leader_cur_X = leader_cur_X.reshape((4,1))
 
 
-        # if self.counter %5 == 0:
-        #     self.leader_waypoints = np.append(self.leader_waypoints[:,1:self.N],leader_cur_X, axis=1)
+        if self.counter %5 == 0:
+            self.leader_waypoints = np.append(self.leader_waypoints[:,1:self.N],leader_cur_X, axis=1)
         # Verify that the newest point is far enough away from the last point added
         if len(self.waypoints_to_track) > 0:
             dist = np.linalg.norm(leader_cur_X - self.waypoints_to_track[-1])
@@ -214,15 +214,17 @@ class Planning_MPC():
         else:
             v = 0
         cur_X = np.array([x, y, v, psi])
+
+        print(f"Follower State: {cur_X}")
         # obtain the latest leader state
-        # leader_X = self.leader_waypoints[:,-2]  # follow old 
+        leader_X = self.leader_waypoints[:,-2]  # follow old 
         # get the control policy
         
-        # u = self.pid(cur_X, leader_X)
-        # throttle, steer = u
+        u = self.pid(cur_X, leader_X)
+        throttle, steer = u
 
         # Can call the manager here if we want to use it instead
-        throttle, steer = self.pidManager(cur_X, self.waypoints_to_track)
+        # throttle, steer = self.pidManager(cur_X, self.waypoints_to_track)
         self.publish_control(throttle, steer, cur_t)
         
         # write the new pose to the buffer
