@@ -303,17 +303,19 @@ class Planning_MPC():
             y_leader = leader_truck.position[1]
             vx_leader = leader_truck.velocity[0]
             vy_leader = leader_truck.velocity[1]
-            throttle, steer = self.relative_pid(x_leader, y_leader, vx_leader, vy_leader)
-            self.publish_control(throttle, steer, cur_t)
+            # If a car is detected, Freeze!
+            self.publish_control(0, 0, cur_t)
 
-            if self.counter % 10 == 0:
+            if self.counter % 50 == 0:
+    
                 rospy.loginfo(f"{leader_truck.label}")
-                rospy.loginfo(f"throttle: {throttle}, steer: {steer}")
+                # rospy.loginfo(f"throttle: {throttle}, steer: {steer}")
                 print(f"x_leader: {x_leader}, y_leader: {y_leader}")
         else:
+            # If it is safe to drive, turn left!
             if self.counter % 50 == 0:
                 rospy.loginfo("no truck detected")
-            self.publish_control(0, 0, cur_t)
+            self.publish_control(0.1, 1, cur_t)
             
         self.counter +=1
         
