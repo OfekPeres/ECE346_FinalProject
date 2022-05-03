@@ -112,16 +112,9 @@ class Planning_MPC():
         self.control_pub = rospy.Publisher(control_topic, RCControl, queue_size=1)
 
         
-        # self.pose_sub = rospy.Subscriber(pose_topic,
-        #                                 Odometry,
-        #                                 self.odom_sub_callback,
-        #                                 queue_size=1)
-        
+        self.leader_car_is_paused_count = 0
+        self.leader_car_last_y_pos = 0
 
-        # self.leader_pose_sub = rospy.Subscriber(leader_pose_topic,
-        #                                 Odometry,
-        #                                 self.leader_odom,
-        #                                 queue_size=1)
 
         rospy.loginfo("In INIT of Planning.py")
         print("In print of INIT of Planning.py")
@@ -295,7 +288,7 @@ class Planning_MPC():
 
     def process_camera(self, data):
         
-        
+        canDrive = False
         cur_t = data.header.stamp
         if len(data.objects) > 0:
             leader_truck = data.objects[0]
@@ -303,8 +296,16 @@ class Planning_MPC():
             y_leader = leader_truck.position[1]
             vx_leader = leader_truck.velocity[0]
             vy_leader = leader_truck.velocity[1]
-            # If a car is detected, Freeze!
-            self.publish_control(0, 0, cur_t)
+
+            # If a car is detected, but is not moving, drive
+            dist_to_last_y = np.linalg.norm(y_leader - self.leader_car_last_y_pos)
+            if dist_to_last_y > 0.1: 
+                self.leader_car_last_y_pos = y_leader
+                canDrive = False
+            elif abs(y_leader) > 0.6 :
+                canDrive = True
+            else:
+                canDrive = False
 
             if self.counter % 50 == 0:
     
@@ -315,9 +316,12 @@ class Planning_MPC():
             # If it is safe to drive, turn left!
             if self.counter % 50 == 0:
                 rospy.loginfo("no truck detected")
-            self.publish_control(0.1, 1, cur_t)
-            
+            canDrive = True
         self.counter +=1
+        if canDrive:
+            self.publish_control(0.1, 1, cur_t)
+        else: 
+            self.publish_control(0, 0, cur_t)
         
     def calcThetaError(self,startState: np.ndarray, goalState: np.ndarray) -> float:
         """Calculates the directional angle error between the direction the car
